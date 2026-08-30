@@ -1,0 +1,13 @@
+import {transaction} from '../config/database.js';
+import { env } from '../config/env.js';
+import { getRedis } from '../config/redis.js';
+import { logger } from '../config/logger.js';
+import { enqueueRevalidation,processRevalidationJobs } from '../services/revalidation.service.js';
+
+let timer;let running=false;
+const acquire=async(name,ttl=25)=>{const redis=getRedis();if(!redis)return true;return Boolean(await redis.set(`${env.CACHE_NAMESPACE}:lock:${name}`,process.pid,'EX',ttl,'NX'));};
+const publishScheduled=async()=>{if(!(await acquire('scheduled-publish')))return;await transaction(async(client)=>{const {rows}=await client.query(`SELECT id,slug,category_id,author_id FROM articles WHERE status='scheduled' AND scheduled_at<=now() AND deleted_at IS NULL FOR UPDATE SKIP LOCKED LIMIT 100`);for(const article of rows){await client.query(`UPDATE articles SET status='published',published_at=COALESCE(scheduled_at,now()),scheduled_at=NULL WHERE id=$1 AND status='scheduled'`,[article.id]);await enqueueRevalidation({tags:['homepage','sitemap','rss',`article:${article.slug}`,`category:${article.category_id}`,`author:${article.author_id}`],paths:[`/tin-tuc/${article.slug}`]},client);}});};
+const flushViews=async()=>{const redis=getRedis();if(!redis||!(await acquire('view-flush')))return;const source=`${env.CACHE_NAMESPACE}:views:pending`;const processing=`${source}:processing:${Date.now()}`;const exists=await redis.exists(source);if(!exists)return;await redis.rename(source,processing);const entries=await redis.hgetall(processing);try{for(const [slug,count] of Object.entries(entries)){await transaction(async(client)=>{const {rows}=await client.query('UPDATE articles SET view_count=view_count+$2 WHERE slug=$1 RETURNING id',[slug,Number(count)]);if(rows[0])await client.query(`INSERT INTO article_views_daily(article_id,view_date,view_count) VALUES($1,current_date,$2) ON CONFLICT(article_id,view_date) DO UPDATE SET view_count=article_views_daily.view_count+EXCLUDED.view_count`,[rows[0].id,Number(count)]);});}await redis.del(processing);}catch(error){for(const [slug,count] of Object.entries(entries))await redis.hincrby(source,slug,Number(count));await redis.del(processing);throw error;}};
+const tick=async()=>{if(running)return;running=true;try{await publishScheduled();await flushViews();await processRevalidationJobs();}catch(error){logger.error({err:error},'Background job tick failed');}finally{running=false;}};
+export const startWorker=()=>{if(timer)return;timer=setInterval(tick,30_000);timer.unref();void tick();};
+export const stopWorker=()=>{if(timer)clearInterval(timer);timer=undefined;};

@@ -1,37 +1,65 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import compression from 'compression';
+import cookieParser from 'cookie-parser';
 import cors from 'cors';
-import express from 'express';
+import express,{ Router } from 'express';
+import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
-import morgan from 'morgan';
-
+import pinoHttp from 'pino-http';
+import swaggerUi from 'swagger-ui-express';
+import YAML from 'yaml';
+import { env } from './config/env.js';
+import { logger } from './config/logger.js';
 import { checkDatabaseConnection } from './config/database.js';
-import { errorHandler, notFoundHandler } from './middlewares/error.middleware.js';
-import adminCategoryRoutes from './routes/admin/category.routes.js';
+import { checkRedisConnection } from './config/redis.js';
+import { authenticate,allowRoles } from './middlewares/auth.middleware.js';
+import { errorHandler,notFoundHandler } from './middlewares/error.middleware.js';
+import { metrics,metricsMiddleware } from './middlewares/metrics.middleware.js';
+import { requestId,success,asyncHandler } from './utils/http.js';
+import authRoutes from './routes/auth.routes.js';
 import categoryRoutes from './routes/category.routes.js';
+import commentRoutes from './routes/comment.routes.js';
+import publicRoutes from './routes/public.routes.js';
+import adminArticleRoutes from './routes/admin/article.routes.js';
+import adminCategoryRoutes from './routes/admin/category.routes.js';
+import adminCommentRoutes from './routes/admin/comment.routes.js';
+import adminMediaRoutes from './routes/admin/media.routes.js';
+import adminSystemRoutes from './routes/admin/system.routes.js';
+import adminUserRoutes from './routes/admin/user.routes.js';
+import { authorRouter,tagRouter } from './routes/admin/taxonomy.routes.js';
 
-const app = express();
+const app=express();
+app.disable('x-powered-by');app.set('trust proxy',env.TRUST_PROXY);
+app.use(requestId);
+app.use(pinoHttp({logger,genReqId:(_req,res)=>res.locals.requestId,redact:['req.headers.authorization','req.headers.cookie']}));
+app.use(helmet({contentSecurityPolicy:{directives:{defaultSrc:["'self'"],imgSrc:["'self'",'data:','https:'],scriptSrc:["'self'"],styleSrc:["'self'","'unsafe-inline'"]}},crossOriginResourcePolicy:{policy:'cross-origin'}}));
+app.use(cors({origin(origin,callback){if(!origin||env.corsOrigins.includes(origin))return callback(null,true);return callback(new Error('Origin is not allowed by CORS'));},credentials:true,methods:['GET','POST','PUT','PATCH','DELETE','OPTIONS'],allowedHeaders:['Content-Type','Authorization','X-Request-Id']}));
+app.use(compression());app.use(cookieParser());app.use(express.json({limit:'2mb'}));app.use(express.urlencoded({extended:false,limit:'128kb'}));app.use(metricsMiddleware);
+app.use('/api/v1',rateLimit({windowMs:60_000,limit:300,standardHeaders:'draft-8',legacyHeaders:false,skip:(req)=>req.path.startsWith('/health')}));
 
-app.disable('x-powered-by');
-app.use(helmet());
-app.use(cors());
-app.use(compression());
-app.use(express.json({ limit: '1mb' }));
-app.use(express.urlencoded({ extended: true }));
-app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
+app.get('/api/v1/health/live',(_req,res)=>success(res,{status:'alive'}));
+app.get('/api/v1/health/ready',asyncHandler(async(_req,res)=>{try{const [database,redis]=await Promise.all([Promise.race([checkDatabaseConnection(),new Promise((_,reject)=>setTimeout(()=>reject(new Error('Database timeout')),3000))]),Promise.race([checkRedisConnection(),new Promise((_,reject)=>setTimeout(()=>reject(new Error('Redis timeout')),3000))])]);return success(res,{status:'ready',database,redis});}catch(_error){return res.status(503).json({success:false,error:{code:'NOT_READY',message:'Một hoặc nhiều dependency chưa sẵn sàng'},requestId:res.locals.requestId});}}));
+app.get('/api/v1/version',(_req,res)=>success(res,{version:env.APP_VERSION,node:process.version}));
+app.get('/metrics',metrics);
+const openapi=YAML.parse(readFileSync(fileURLToPath(new URL('../docs/openapi.yaml',import.meta.url)),'utf8'));
+app.use('/api/docs',swaggerUi.serve,swaggerUi.setup(openapi,{customSiteTitle:'News Portal API'}));
 
-app.get('/api/v1/health', async (_request, response, next) => {
-  try {
-    const database = await checkDatabaseConnection();
-    response.json({ status: 'ok', database });
-  } catch (error) {
-    next(error);
-  }
-});
+app.use('/api/v1/auth',authRoutes);
+app.use('/api/v1',categoryRoutes);
+app.use('/api/v1',commentRoutes);
+app.use('/api/v1',publicRoutes);
 
-app.use('/api', categoryRoutes);
-app.use('/api/admin/categories', adminCategoryRoutes);
+const admin=Router();admin.use(authenticate);
+admin.use('/articles',adminArticleRoutes);
+admin.use('/categories',allowRoles('editor','super_admin'),adminCategoryRoutes);
+admin.use('/tags',allowRoles('editor','super_admin'),tagRouter);
+admin.use('/authors',allowRoles('editor','super_admin'),authorRouter);
+admin.use('/media',allowRoles('editor','super_admin'),adminMediaRoutes);
+admin.use('/comments',allowRoles('editor','super_admin'),adminCommentRoutes);
+admin.use('/users',allowRoles('super_admin'),adminUserRoutes);
+admin.use('/',adminSystemRoutes);
+app.use('/api/v1/admin',admin);
 
-app.use(notFoundHandler);
-app.use(errorHandler);
-
+app.use(notFoundHandler);app.use(errorHandler);
 export default app;

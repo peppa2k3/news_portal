@@ -1,0 +1,22 @@
+import { Router } from 'express';
+import rateLimit from 'express-rate-limit';
+import { z } from 'zod';
+import { env } from '../config/env.js';
+import { authenticate } from '../middlewares/auth.middleware.js';
+import { validate } from '../middlewares/validate.middleware.js';
+import * as auth from '../services/auth.service.js';
+import { asyncHandler,success } from '../utils/http.js';
+
+const router=Router();
+const limiter=rateLimit({windowMs:15*60_000,limit:10,standardHeaders:'draft-8',legacyHeaders:false});
+const credentials=z.object({email:z.email().max(320),password:z.string().min(10).max(200)}).strict();
+const cookieOptions={httpOnly:true,secure:env.COOKIE_SECURE,sameSite:'strict',path:'/api/v1/auth',maxAge:env.REFRESH_TOKEN_TTL_DAYS*86400_000};
+const readRefresh=(request)=>request.cookies?.refreshToken||request.body?.refreshToken;
+router.post('/login',limiter,validate({body:credentials}),asyncHandler(async(req,res)=>{const result=await auth.login({...req.body,request:req});res.cookie('refreshToken',result.refreshToken,cookieOptions);return success(res,result,{status:200});}));
+router.post('/refresh',limiter,asyncHandler(async(req,res)=>{const token=readRefresh(req);if(!token)return res.status(401).json({success:false,error:{code:'REFRESH_TOKEN_REQUIRED',message:'Thiếu refresh token'},requestId:res.locals.requestId});const result=await auth.rotate({token,request:req});res.cookie('refreshToken',result.refreshToken,cookieOptions);return success(res,result);}));
+router.post('/logout',asyncHandler(async(req,res)=>{await auth.logout(readRefresh(req));res.clearCookie('refreshToken',{...cookieOptions,maxAge:undefined});return success(res,{loggedOut:true});}));
+router.post('/logout-all',authenticate,asyncHandler(async(req,res)=>{await auth.logoutAll(req.user.id);res.clearCookie('refreshToken',{...cookieOptions,maxAge:undefined});return success(res,{loggedOut:true});}));
+router.get('/me',authenticate,asyncHandler(async(req,res)=>success(res,await auth.getMe(req.user.id))));
+router.post('/forgot-password',limiter,validate({body:z.object({email:z.email().max(320)}).strict()}),asyncHandler(async(req,res)=>success(res,{message:'Nếu email tồn tại, hướng dẫn đặt lại mật khẩu đã được gửi',...(await auth.forgotPassword({email:req.body.email,request:req}))})));
+router.post('/reset-password',limiter,validate({body:z.object({token:z.string().min(32).max(200),password:z.string().min(12).max(200).regex(/[A-Z]/).regex(/[a-z]/).regex(/[0-9]/)}).strict()}),asyncHandler(async(req,res)=>{await auth.resetPassword({...req.body,request:req});return success(res,{reset:true});}));
+export default router;

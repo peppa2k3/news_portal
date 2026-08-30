@@ -1,32 +1,9 @@
-import assert from 'node:assert/strict';
-import test from 'node:test';
-
-import {
-  buildCategoryTree,
-  createSlug,
-} from '../src/services/category.service.js';
-
-test('buildCategoryTree returns a nested tree sorted at every level', () => {
-  const categories = [
-    { id: '3', parentId: '1', name: 'Premier League', displayOrder: 2 },
-    { id: '2', parentId: '1', name: 'V-League', displayOrder: 1 },
-    { id: '1', parentId: null, name: 'Thể thao', displayOrder: 2 },
-    { id: '4', parentId: null, name: 'Thời sự', displayOrder: 1 },
-  ];
-
-  const tree = buildCategoryTree(categories);
-
-  assert.deepEqual(
-    tree.map((category) => category.id),
-    ['4', '1'],
-  );
-  assert.deepEqual(
-    tree[1].children.map((category) => category.id),
-    ['2', '3'],
-  );
-  assert.deepEqual(tree[0].children, []);
-});
-
-test('createSlug normalizes Vietnamese category names', () => {
-  assert.equal(createSlug('  Bóng đá Việt Nam  '), 'bong-da-viet-nam');
+import { describe,expect,it } from 'vitest';
+import { buildCategoryTree,createSlug } from '../src/services/category.service.js';
+describe('category service',()=>{
+  it('builds and recursively sorts a nested category tree',()=>{
+    const tree=buildCategoryTree([{id:'3',parentId:'1',name:'Z',displayOrder:2},{id:'1',parentId:null,name:'Root',displayOrder:0},{id:'2',parentId:'1',name:'A',displayOrder:1}]);
+    expect(tree).toHaveLength(1);expect(tree[0].children.map(item=>item.id)).toEqual(['2','3']);
+  });
+  it('normalizes Vietnamese names to URL slugs',()=>expect(createSlug('  Điện thoại & Đời sống  ')).toBe('dien-thoai-doi-song'));
 });

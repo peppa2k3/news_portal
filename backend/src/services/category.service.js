@@ -1,4 +1,6 @@
 import { AppError } from '../errors/app.error.js';
+import { transaction } from '../config/database.js';
+import { writeAudit } from './audit.service.js';
 import * as categoryModel from '../models/category.model.js';
 
 const hasOwn = (object, key) =>
@@ -229,6 +231,8 @@ export const getMenu = async () => {
   return buildCategoryTree(categories);
 };
 
+export const getAdminTree = async () => buildCategoryTree(await categoryModel.findAllCategories());
+
 export const createCategory = async (payload) => {
   const input = normalizeCreateInput(payload);
   await ensureParentExists(input.parentId);
@@ -271,11 +275,32 @@ export const updateCategory = async (idValue, payload) => {
   return categoryModel.updateCategory(id, category);
 };
 
-export const deleteCategory = async (idValue) => {
+export const deleteCategory = async (idValue, replacementIdValue, request) => {
   const id = parseId(idValue);
-  const deleted = await categoryModel.deleteCategory(id);
-
-  if (!deleted) {
-    throw new AppError(404, 'Category not found.', 'CATEGORY_NOT_FOUND');
-  }
+  const replacementId = replacementIdValue ? parseId(replacementIdValue, 'replacementCategoryId') : null;
+  return transaction(async (client) => {
+    const existing = await categoryModel.findCategoryById(id, client);
+    if (!existing) throw new AppError(404, 'Category not found.', 'CATEGORY_NOT_FOUND');
+    const children = await client.query('SELECT 1 FROM categories WHERE parent_id=$1 AND deleted_at IS NULL LIMIT 1', [id]);
+    if (children.rowCount) throw new AppError(409, 'Move or delete child categories first.', 'CATEGORY_HAS_CHILDREN');
+    const articles = await client.query('SELECT count(*) FROM articles WHERE category_id=$1 AND deleted_at IS NULL', [id]);
+    if (Number(articles.rows[0].count) > 0) {
+      if (!replacementId || replacementId === id) throw new AppError(409, 'replacementCategoryId is required for a category containing articles.', 'REPLACEMENT_CATEGORY_REQUIRED');
+      const replacement = await categoryModel.findCategoryById(replacementId, client);
+      if (!replacement) throw new AppError(400, 'Replacement category does not exist.', 'INVALID_REPLACEMENT_CATEGORY');
+      await client.query('UPDATE articles SET category_id=$2 WHERE category_id=$1 AND deleted_at IS NULL', [id, replacementId]);
+    }
+    await client.query('UPDATE categories SET deleted_at=now(),is_active=false,show_in_menu=false WHERE id=$1', [id]);
+    if (request) await writeAudit(client,{request,actorId:request.user.id,action:'category.delete',entityType:'category',entityId:id,metadata:{replacementId}});
+  });
 };
+
+export const reorderCategories = async (items, request) => transaction(async (client) => {
+  for (const item of items) {
+    const id = parseId(item.id);
+    const order = readDisplayOrder(item.displayOrder);
+    const result = await client.query('UPDATE categories SET display_order=$2 WHERE id=$1 AND deleted_at IS NULL', [id, order]);
+    if (!result.rowCount) throw new AppError(404, `Category ${id} not found.`, 'CATEGORY_NOT_FOUND');
+  }
+  await writeAudit(client,{request,actorId:request.user.id,action:'category.reorder',entityType:'category',metadata:{items}});
+});

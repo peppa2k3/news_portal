@@ -1,0 +1,59 @@
+openapi: 3.1.0
+info:
+  title: News Portal API
+  version: 2.0.0
+  description: Production API for public news delivery and the Admin CMS.
+servers:
+  - url: /api/v1
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+  schemas:
+    Envelope:
+      type: object
+      required: [success, data, requestId]
+      properties:
+        success: { type: boolean, const: true }
+        data: {}
+        meta: { type: object }
+        requestId: { type: string }
+    Error:
+      type: object
+      required: [success, error, requestId]
+      properties:
+        success: { type: boolean, const: false }
+        error:
+          type: object
+          required: [code, message]
+          properties: { code: { type: string }, message: { type: string }, fields: { type: object } }
+        requestId: { type: string }
+paths:
+  /health/live:
+    get: { tags: [System], summary: Liveness, responses: { '200': { description: Alive } } }
+  /health/ready:
+    get: { tags: [System], summary: Database and Redis readiness, responses: { '200': { description: Ready }, '503': { description: Not ready } } }
+  /auth/login:
+    post: { tags: [Authentication], summary: Login and issue rotating session, responses: { '200': { description: Authenticated }, '401': { description: Invalid credentials } } }
+  /auth/refresh:
+    post: { tags: [Authentication], summary: Rotate refresh token, responses: { '200': { description: Rotated }, '401': { description: Invalid/reused token } } }
+  /menu:
+    get: { tags: [Public], summary: Nested public category menu, responses: { '200': { description: Menu } } }
+  /homepage:
+    get: { tags: [Public], summary: Featured, category sections and trending without N+1, responses: { '200': { description: Homepage } } }
+  /articles/{slug}:
+    get:
+      tags: [Public]
+      summary: Published article detail or 301 slug redirect
+      parameters: [{ name: slug, in: path, required: true, schema: { type: string } }]
+      responses: { '200': { description: Article }, '301': { description: Old slug }, '404': { description: Not found } }
+  /search:
+    get:
+      tags: [Public]
+      summary: Vietnamese full-text search
+      parameters: [{ name: q, in: query, schema: { type: string } }]
+      responses: { '200': { description: Results } }
+  /admin/articles:
+    get: { tags: [Admin articles], security: [{ bearerAuth: [] }], summary: Filter articles, responses: { '200': { description: Articles } } }
+    post: { tags: [Admin articles], security: [{ bearerAuth: [] }], summary: Create draft, responses: { '201': { description: Created } } }
+  /admin/media:
+    post: { tags: [Admin media], security: [{ bearerAuth: [] }], summary: Validate, transform and upload image, responses: { '201': { description: Uploaded } } }

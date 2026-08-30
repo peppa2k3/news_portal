@@ -1,16 +1,14 @@
 import { Router } from 'express';
-
-import {
-  createCategory,
-  deleteCategory,
-  updateCategory,
-} from '../../controllers/admin/category.controller.js';
-
-const router = Router();
-
-// Attach the JWT admin middleware here when the auth module is implemented.
-router.post('/', createCategory);
-router.put('/:id', updateCategory);
-router.delete('/:id', deleteCategory);
-
+import { z } from 'zod';
+import { validate } from '../../middlewares/validate.middleware.js';
+import * as categories from '../../services/category.service.js';
+import { cacheInvalidate } from '../../services/cache.service.js';
+import { asyncHandler,success } from '../../utils/http.js';
+const router=Router();const id=z.object({id:z.string().regex(/^\d+$/)});
+router.get('/',asyncHandler(async(_req,res)=>success(res,await categories.getAdminTree())));
+router.patch('/reorder',validate({body:z.object({items:z.array(z.object({id:z.string().regex(/^\d+$/),displayOrder:z.number().int().min(0)})).min(1).max(200)}).strict()}),asyncHandler(async(req,res)=>{await categories.reorderCategories(req.body.items,req);await cacheInvalidate('menu','homepage*','category*');return success(res,await categories.getAdminTree());}));
+router.post('/',asyncHandler(async(req,res)=>{const data=await categories.createCategory(req.body);await cacheInvalidate('menu','homepage*','category*');return success(res,data,{status:201});}));
+router.put('/:id',validate({params:id}),asyncHandler(async(req,res)=>{const data=await categories.updateCategory(req.params.id,req.body);await cacheInvalidate('menu','homepage*','category*');return success(res,data);}));
+router.patch('/:id',validate({params:id}),asyncHandler(async(req,res)=>{const data=await categories.updateCategory(req.params.id,req.body);await cacheInvalidate('menu','homepage*','category*');return success(res,data);}));
+router.delete('/:id',validate({params:id,query:z.object({replacementCategoryId:z.string().regex(/^\d+$/).optional()})}),asyncHandler(async(req,res)=>{await categories.deleteCategory(req.params.id,req.query.replacementCategoryId,req);await cacheInvalidate('menu','homepage*','category*','article*');return res.status(204).send();}));
 export default router;
