@@ -1,0 +1,13 @@
+import { Router } from 'express';
+import multer from 'multer';
+import { z } from 'zod';
+import { env } from '../../config/env.js';
+import { validate } from '../../middlewares/validate.middleware.js';
+import * as media from '../../services/media.service.js';
+import { asyncHandler,success } from '../../utils/http.js';
+const router=Router();const id=z.object({id:z.string().regex(/^\d+$/)});const upload=multer({storage:multer.memoryStorage(),limits:{fileSize:env.MAX_UPLOAD_MB*1024*1024,files:1}});
+router.get('/',asyncHandler(async(req,res)=>{const data=await media.list(req.query);return success(res,data.items,{meta:data.meta});}));
+router.post('/',upload.single('file'),asyncHandler(async(req,res)=>success(res,await media.uploadImage(req.file,req.body,req),{status:201})));
+router.patch('/:id',validate({params:id,body:z.object({altText:z.string().max(500).nullable()}).strict()}),asyncHandler(async(req,res)=>success(res,await media.update(req.params.id,req.body.altText,req))));
+router.delete('/:id',validate({params:id}),asyncHandler(async(req,res)=>{await media.remove(req.params.id,req);return res.status(204).send();}));
+export default router;

@@ -1,0 +1,10 @@
+import { Router } from 'express';
+import rateLimit from 'express-rate-limit';
+import { z } from 'zod';
+import { validate } from '../middlewares/validate.middleware.js';
+import * as comments from '../services/comment.service.js';
+import { asyncHandler,success } from '../utils/http.js';
+const router=Router();const slug=z.object({slug:z.string().min(1).max(300)});
+router.get('/articles/:slug/comments',validate({params:slug,query:z.object({page:z.coerce.number().int().positive().optional(),limit:z.coerce.number().int().positive().max(50).optional()})}),asyncHandler(async(req,res)=>{const data=await comments.publicList(req.params.slug,req.query);return success(res,data.items,{meta:data.meta});}));
+router.post('/articles/:slug/comments',rateLimit({windowMs:15*60_000,limit:5,standardHeaders:'draft-8',legacyHeaders:false}),validate({params:slug,body:z.object({parentId:z.string().regex(/^\d+$/).nullable().optional(),name:z.string().min(2).max(150),email:z.email().max(320),content:z.string().min(2).max(5000)}).strict()}),asyncHandler(async(req,res)=>success(res,await comments.submit(req.params.slug,req.body,req),{status:202})));
+export default router;

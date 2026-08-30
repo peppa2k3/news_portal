@@ -1,0 +1,12 @@
+import { Router } from 'express';
+import { z } from 'zod';
+import { validate } from '../../middlewares/validate.middleware.js';
+import { allowRoles } from '../../middlewares/auth.middleware.js';
+import * as admin from '../../services/admin.service.js';
+import { asyncHandler,success } from '../../utils/http.js';
+const router=Router();
+router.get('/dashboard',asyncHandler(async(_req,res)=>success(res,await admin.dashboard())));
+router.get('/audit-logs',allowRoles('super_admin'),asyncHandler(async(req,res)=>{const data=await admin.auditLogs(req.query);return success(res,data.items,{meta:data.meta});}));
+router.get('/settings',allowRoles('super_admin'),asyncHandler(async(_req,res)=>success(res,await admin.settings())));
+router.put('/settings/:key',allowRoles('super_admin'),validate({params:z.object({key:z.string().regex(/^[a-z][a-z0-9_]{1,99}$/)}),body:z.object({value:z.json()}).strict()}),asyncHandler(async(req,res)=>success(res,await admin.updateSetting(req.params.key,req.body.value,req))));
+export default router;

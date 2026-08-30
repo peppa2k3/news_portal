@@ -1,0 +1,12 @@
+import { Router } from 'express';
+import { z } from 'zod';
+import { validate } from '../../middlewares/validate.middleware.js';
+import * as users from '../../services/user.service.js';
+import { asyncHandler,success } from '../../utils/http.js';
+const router=Router();
+const id=z.object({id:z.string().regex(/^\d+$/)});
+router.get('/',validate({query:z.object({search:z.string().max(100).optional(),role:z.enum(['super_admin','editor','author']).optional(),status:z.enum(['active','suspended']).optional(),page:z.coerce.number().int().positive().optional(),limit:z.coerce.number().int().positive().max(100).optional()})}),asyncHandler(async(req,res)=>{const result=await users.listUsers(req.query);return success(res,result.items,{meta:result.meta});}));
+router.post('/',validate({body:z.object({email:z.email(),password:z.string().min(12).max(200),fullName:z.string().min(2).max(150),role:z.enum(['super_admin','editor','author']).default('author'),status:z.enum(['active','suspended']).default('active')}).strict()}),asyncHandler(async(req,res)=>success(res,await users.createUser(req.body,req),{status:201})));
+router.patch('/:id',validate({params:id,body:z.object({fullName:z.string().min(2).max(150).optional(),avatarUrl:z.url().nullable().optional(),role:z.enum(['super_admin','editor','author']).optional(),status:z.enum(['active','suspended']).optional()}).strict().refine(v=>Object.keys(v).length>0)}),asyncHandler(async(req,res)=>success(res,await users.updateUser(req.params.id,req.body,req))));
+router.delete('/:id',validate({params:id}),asyncHandler(async(req,res)=>{await users.deleteUser(req.params.id,req);return res.status(204).send();}));
+export default router;

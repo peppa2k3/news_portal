@@ -1,0 +1,10 @@
+import { Router } from 'express';
+import { z } from 'zod';
+import { validate } from '../../middlewares/validate.middleware.js';
+import * as comments from '../../services/comment.service.js';
+import { asyncHandler,success } from '../../utils/http.js';
+const router=Router();
+router.get('/',asyncHandler(async(req,res)=>{const data=await comments.adminList(req.query);return success(res,data.items,{meta:data.meta});}));
+router.patch('/bulk',validate({body:z.object({ids:z.array(z.string().regex(/^\d+$/)).min(1).max(100),status:z.enum(['approved','rejected','spam'])}).strict()}),asyncHandler(async(req,res)=>success(res,await comments.moderate(req.body.ids,req.body.status,req))));
+router.patch('/:id',validate({params:z.object({id:z.string().regex(/^\d+$/)}),body:z.object({status:z.enum(['approved','rejected','spam'])}).strict()}),asyncHandler(async(req,res)=>success(res,await comments.moderate([req.params.id],req.body.status,req))));
+export default router;

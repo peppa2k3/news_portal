@@ -1,0 +1,29 @@
+services:
+  migrate:
+    image: ghcr.io/${GHCR_OWNER}/${GHCR_REPO}-backend:${IMAGE_TAG}
+    command: ["node", "scripts/migrate.js"]
+    env_file: .env.production
+    restart: "no"
+    networks: [internal]
+
+  api:
+    image: ghcr.io/${GHCR_OWNER}/${GHCR_REPO}-backend:${IMAGE_TAG}
+    restart: unless-stopped
+    env_file: .env.production
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.news-api.rule=Host(`${API_DOMAIN}`)
+      - traefik.http.routers.news-api.entrypoints=websecure
+      - traefik.http.routers.news-api.tls=true
+      - traefik.http.routers.news-api.tls.certresolver=le
+      - traefik.http.services.news-api.loadbalancer.server.port=5000
+    networks: [internal, web]
+
+networks:
+  internal:
+    external: true
+    name: news_portal_internal
+  web:
+    external: true

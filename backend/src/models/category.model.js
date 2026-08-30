@@ -21,6 +21,7 @@ export const findMenuCategories = async () => {
     SELECT ${categoryColumns}
       FROM categories c
      WHERE c.is_active = true
+       AND c.deleted_at IS NULL
        AND c.show_in_menu = true
        AND c.path IS NOT NULL
        AND NOT EXISTS (
@@ -39,11 +40,16 @@ export const findMenuCategories = async () => {
   return rows;
 };
 
+export const findAllCategories = async () => {
+  const { rows } = await pool.query(`SELECT ${categoryColumns} FROM categories c WHERE c.deleted_at IS NULL ORDER BY c.path`);
+  return rows;
+};
+
 export const findCategoryById = async (id, client = pool) => {
   const { rows } = await client.query(
     `SELECT ${categoryColumns}
        FROM categories c
-      WHERE c.id = $1`,
+      WHERE c.id = $1 AND c.deleted_at IS NULL`,
     [id],
   );
 
@@ -54,7 +60,7 @@ export const findCategoryBySlug = async (slug, client = pool) => {
   const { rows } = await client.query(
     `SELECT ${categoryColumns}
        FROM categories c
-      WHERE c.slug = $1`,
+      WHERE c.slug = $1 AND c.deleted_at IS NULL`,
     [slug],
   );
 
@@ -142,7 +148,10 @@ export const updateCategory = async (id, category, client = pool) => {
 
 export const deleteCategory = async (id, client = pool) => {
   const { rowCount } = await client.query(
-    'DELETE FROM categories WHERE id = $1',
+    `UPDATE categories c SET deleted_at = now(), is_active = false, show_in_menu = false
+      WHERE id = $1 AND deleted_at IS NULL
+        AND NOT EXISTS (SELECT 1 FROM categories child WHERE child.parent_id=c.id AND child.deleted_at IS NULL)
+        AND NOT EXISTS (SELECT 1 FROM articles a WHERE a.category_id=c.id AND a.deleted_at IS NULL)`,
     [id],
   );
 
