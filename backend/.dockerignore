@@ -6,6 +6,5 @@ npm-debug.log*
 .git
 test
 coverage
-docs
 Dockerfile*
 docker-compose*.yml
