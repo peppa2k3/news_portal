@@ -1,0 +1,2 @@
+import Link from "next/link";
+export function AdminPageHeader({ title, description, action }: { title: string; description?: string; action?: { href: string; label: string } }) { return <header className="mb-7 flex flex-wrap items-end justify-between gap-4"><div><h1 className="text-3xl font-black text-slate-950">{title}</h1>{description && <p className="mt-1 text-slate-600">{description}</p>}</div>{action && <Link className="btn-primary" href={action.href}>{action.label}</Link>}</header>; }

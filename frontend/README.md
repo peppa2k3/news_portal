@@ -1,66 +1,87 @@
 # News Portal Frontend
 
-Frontend tin tức sử dụng Next.js App Router, TypeScript và Tailwind CSS.
+Frontend production cho website tin tức và Admin CMS, xây dựng bằng Next.js App Router, TypeScript, Tailwind CSS, React Hook Form, Zod và TanStack Query.
+
+## Chức năng
+
+- Website public: homepage, category, article, tag, author, search và các trang thông tin.
+- SEO: metadata động, canonical, Open Graph, Twitter Card, NewsArticle JSON-LD, sitemap, robots và RSS.
+- ISR theo cache tag; view/comment được tải riêng để không biến trang bài viết thành dynamic.
+- Admin CMS: auth, dashboard, article workflow, category tree, tag, author, media, comment, users/RBAC, audit log và settings.
+- BFF proxy cùng origin cho Admin, giữ cookie HttpOnly và không đưa `API_URL` ra browser.
+- Revalidation HMAC SHA-256 có timestamp, giới hạn tag/path và payload.
+- Docker multi-stage, standalone output, non-root runtime và healthcheck.
+
+## Yêu cầu
+
+- Node.js 22 LTS.
+- Backend production API tuân thủ prefix `/api/v1` và response envelope trong master prompt.
 
 ## Chạy local
 
-Yêu cầu Node.js 20.9 trở lên.
-
 ```bash
 cp .env.example .env.local
-npm install
+npm ci
 npm run dev
 ```
 
-Mở `http://localhost:3000`.
+Frontend: `http://localhost:3000`. Admin: `http://localhost:3000/admin`.
 
 ## Biến môi trường
 
-```env
-API_URL=http://localhost:5000
-REVALIDATE_SECRET=replace-with-a-long-random-secret-token
-```
+| Biến | Phạm vi | Bắt buộc | Mô tả |
+|---|---|---:|---|
+| `API_URL` | server-only | Có | URL backend gồm `/api/v1` |
+| `REVALIDATE_SECRET` | server-only | Có | Secret ngẫu nhiên tối thiểu 32 ký tự |
+| `REVALIDATE_MAX_AGE_SECONDS` | server-only | Không | Cửa sổ timestamp, mặc định 300 giây |
+| `NEXT_PUBLIC_SITE_URL` | public | Có | Origin canonical của website |
+| `NEXT_PUBLIC_COMMENTS_ENABLED` | public | Không | Bật giao diện bình luận |
+| `NEXT_PUBLIC_SENTRY_DSN` | public | Không | Adapter theo dõi lỗi nếu triển khai |
 
-- `API_URL`: URL Backend Express, không đưa ra phía trình duyệt.
-- `REVALIDATE_SECRET`: chuỗi bí mật tối thiểu 32 ký tự. Backend và Frontend phải dùng cùng giá trị.
+Không đưa secret vào biến có prefix `NEXT_PUBLIC_` và không commit `.env*`.
 
-## On-demand revalidation
+## Revalidation từ backend
 
-Backend gọi Route Handler sau khi publish hoặc cập nhật nội dung:
+Body JSON mẫu:
 
-```http
-POST /api/revalidate
-Content-Type: application/json
-
+```json
 {
-  "tag": "article:slug-bai-viet",
-  "secret_token": "your-revalidation-secret"
+  "tags": ["article:slug-bai-viet", "homepage", "rss", "sitemap"],
+  "paths": ["/tin-tuc/slug-bai-viet", "/rss.xml", "/sitemap.xml"]
 }
 ```
 
-Các tag hợp lệ:
+Backend tạo timestamp millisecond và chữ ký:
 
-- `homepage`
-- `menu`
-- `category:<slug>`
-- `article:<slug>`
+```text
+signature = HMAC_SHA256(REVALIDATE_SECRET, `${timestamp}.${rawJsonBody}`)
+```
 
-Secret được xác thực bằng phép so sánh constant-time trước khi tag được kiểm tra
-và trước khi `revalidateTag()` được gọi.
+Gửi qua header `x-revalidate-timestamp` và `x-revalidate-signature`. Body ký và body gửi phải giống byte-for-byte.
 
-## Cache strategy
-
-| Dữ liệu | Thời gian ISR | Tag |
-| --- | ---: | --- |
-| Menu | 3600 giây | `menu` |
-| Trang chủ | 60 giây | `homepage` |
-| Danh mục | 120 giây | `category:<slug>` |
-| Bài viết | 300 giây | `article:<slug>` |
-
-## Kiểm tra trước khi deploy
+## Kiểm tra
 
 ```bash
-npm run typecheck
 npm run lint
+npm run typecheck
+npm test
 npm run build
+docker build -t news-portal-frontend .
 ```
+
+## Build và chạy Docker
+
+```bash
+docker build \
+  --build-arg API_URL=http://backend:5000/api/v1 \
+  --build-arg NEXT_PUBLIC_SITE_URL=https://news.example.com \
+  -t news-portal-frontend .
+
+docker run --rm -p 3000:3000 \
+  -e API_URL=http://backend:5000/api/v1 \
+  -e REVALIDATE_SECRET=replace-with-a-real-long-random-secret \
+  -e NEXT_PUBLIC_SITE_URL=https://news.example.com \
+  news-portal-frontend
+```
+
+`API_URL` cũng phải được truyền lúc runtime vì Server Components và Admin proxy gọi backend sau khi container khởi động.

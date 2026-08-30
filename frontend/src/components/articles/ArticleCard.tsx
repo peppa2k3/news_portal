@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import type { ArticleSummary } from "@/types";
+import { NewsImage } from "@/components/ui/NewsImage";
 
 type ArticleCardVariant = "default" | "featured" | "compact";
 
@@ -52,20 +53,7 @@ export function ArticleCard({
         }
         aria-label={article.title}
       >
-        {article.thumbnail_url ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={article.thumbnail_url}
-            alt={article.title}
-            className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
-            loading={priority ? "eager" : "lazy"}
-            fetchPriority={priority ? "high" : "auto"}
-          />
-        ) : (
-          <div className="flex h-full items-center justify-center text-sm text-slate-400">
-            Chưa có ảnh
-          </div>
-        )}
+        <NewsImage src={article.thumbnail_url} alt={article.thumbnail_alt ?? article.title} priority={priority} className="h-full w-full" />
       </Link>
 
       <div className={isCompact ? "min-w-0 py-1" : "p-5"}>

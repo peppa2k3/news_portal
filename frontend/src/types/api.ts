@@ -1,4 +1,5 @@
 import type { Article, ArticleSummary } from "./article";
+import type { Author } from "./author";
 import type { CategoryDetail, CategoryTreeNode } from "./category";
 import type { ApiResponse, PaginatedData } from "./common";
 import type { Tag } from "./tag";
@@ -46,3 +47,16 @@ export interface SearchData extends PaginatedData<ArticleSummary> {
 }
 
 export type SearchResponse = ApiResponse<SearchData>;
+
+export interface AuthorArticlesData extends PaginatedData<ArticleSummary> {
+  author: Author;
+}
+
+export type AuthorArticlesResponse = ApiResponse<AuthorArticlesData>;
+
+export interface ArticleCommentsData {
+  items: import("./cms").Comment[];
+  pagination: import("./common").PaginationMeta;
+}
+
+export type ArticleCommentsResponse = ApiResponse<ArticleCommentsData>;

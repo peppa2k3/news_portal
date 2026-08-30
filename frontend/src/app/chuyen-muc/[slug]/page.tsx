@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 
 import { ArticleCard } from "@/components/articles/ArticleCard";
 import { getCategoryArticles } from "@/services/api";
+import { absoluteUrl } from "@/lib/site";
 
 interface CategoryPageProps {
   params: Promise<{ slug: string }>;
@@ -27,6 +28,7 @@ export async function generateMetadata({
   return {
     title: response.data.category.meta_title ?? response.data.category.name,
     description: response.data.category.meta_desc ?? undefined,
+    alternates: { canonical: absoluteUrl(`/chuyen-muc/${slug}`) },
   };
 }
 

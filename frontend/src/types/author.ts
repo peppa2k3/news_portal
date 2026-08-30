@@ -6,6 +6,7 @@ export interface Author {
   slug: string | null;
   avatar_url: string | null;
   bio: string | null;
+  social_links?: Record<string, string>;
 }
 
 export type AuthorSummary = Pick<

@@ -1,6 +1,8 @@
 import { CategorySection } from "@/components/home/CategorySection";
 import { FeaturedArticles } from "@/components/home/FeaturedArticles";
 import { getHomepageData } from "@/services/api";
+import { ArticleCard } from "@/components/articles/ArticleCard";
+import { TrendingList } from "@/components/articles/TrendingList";
 
 export default async function HomePage() {
   let response: Awaited<ReturnType<typeof getHomepageData>>;
@@ -27,12 +29,17 @@ export default async function HomePage() {
     throw new Error(response.error.message);
   }
 
-  const { featured_articles, category_sections } = response.data;
+  const { featured_articles, category_sections, latest_articles, trending_articles } = response.data;
 
   return (
     <main className="min-h-screen bg-slate-50">
       <div className="mx-auto max-w-7xl space-y-14 px-4 py-8 sm:px-6 sm:py-10 lg:px-8 lg:py-12">
         <FeaturedArticles articles={featured_articles} />
+
+        <div className="grid gap-8 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
+          <section aria-labelledby="latest-heading"><h2 id="latest-heading" className="mb-6 border-b border-slate-200 pb-3 text-2xl font-black">Tin mới nhất</h2><div className="grid gap-6 sm:grid-cols-2">{latest_articles.slice(0, 6).map((article) => <ArticleCard key={article.id} article={article} />)}</div></section>
+          <TrendingList articles={trending_articles} />
+        </div>
 
         {category_sections.length > 0 ? (
           category_sections.map((section) => (

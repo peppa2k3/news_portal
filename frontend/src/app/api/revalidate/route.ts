@@ -1,64 +1,52 @@
-import { createHash, timingSafeEqual } from "node:crypto";
-import { revalidateTag } from "next/cache";
+import { createHmac, timingSafeEqual } from "node:crypto";
+import { revalidatePath, revalidateTag } from "next/cache";
 
 export const runtime = "nodejs";
 
-const MAX_BODY_SIZE_BYTES = 4_096;
-const VALID_TAG = /^(homepage|menu|category:[a-z0-9]+(?:-[a-z0-9]+)*|article:[a-z0-9]+(?:-[a-z0-9]+)*)$/;
+const MAX_BODY_SIZE = 8_192;
+const TAG_PATTERN = /^(homepage|menu|trending|sitemap|rss|category|article|tag|author):?[a-z0-9-]*$/;
+const PATH_PATTERN = /^\/(?:$|chuyen-muc\/[a-z0-9-]+|tin-tuc\/[a-z0-9-]+|tag\/[a-z0-9-]+|tac-gia\/[a-z0-9-]+|sitemap\.xml|rss\.xml)$/;
 
-interface RevalidatePayload {
-  tag?: unknown;
-  secret_token?: unknown;
-}
+type Payload = { tags?: unknown; paths?: unknown };
 
-function secureTokenEquals(received: string, expected: string): boolean {
-  const receivedHash = createHash("sha256").update(received).digest();
-  const expectedHash = createHash("sha256").update(expected).digest();
-
-  return timingSafeEqual(receivedHash, expectedHash);
+function safeEqual(left: string, right: string) {
+  const a = Buffer.from(left, "hex");
+  const b = Buffer.from(right, "hex");
+  return a.length === b.length && a.length > 0 && timingSafeEqual(a, b);
 }
 
 export async function POST(request: Request) {
-  const expectedSecret = process.env.REVALIDATE_SECRET;
-
-  if (!expectedSecret || expectedSecret.length < 32) {
-    console.error("REVALIDATE_SECRET is missing or shorter than 32 characters");
-    return Response.json(
-      { error: "Revalidation is not configured" },
-      { status: 500 },
-    );
+  const secret = process.env.REVALIDATE_SECRET;
+  if (!secret || secret.length < 32) {
+    return Response.json({ success: false, error: "Revalidation chưa được cấu hình" }, { status: 503 });
   }
 
-  const contentLength = Number(request.headers.get("content-length") ?? 0);
-  if (Number.isFinite(contentLength) && contentLength > MAX_BODY_SIZE_BYTES) {
-    return Response.json({ error: "Payload too large" }, { status: 413 });
+  const raw = await request.text();
+  if (Buffer.byteLength(raw) > MAX_BODY_SIZE) return Response.json({ success: false, error: "Payload quá lớn" }, { status: 413 });
+
+  const timestamp = request.headers.get("x-revalidate-timestamp") ?? "";
+  const signature = request.headers.get("x-revalidate-signature") ?? "";
+  const sentAt = Number(timestamp);
+  const maxAge = Math.max(60, Number(process.env.REVALIDATE_MAX_AGE_SECONDS) || 300);
+  if (!Number.isFinite(sentAt) || Math.abs(Date.now() - sentAt) > maxAge * 1000) {
+    return Response.json({ success: false, error: "Yêu cầu đã hết hạn" }, { status: 401 });
   }
 
-  let payload: RevalidatePayload;
-  try {
-    payload = (await request.json()) as RevalidatePayload;
-  } catch {
-    return Response.json({ error: "Invalid JSON payload" }, { status: 400 });
+  const expected = createHmac("sha256", secret).update(`${timestamp}.${raw}`).digest("hex");
+  if (!safeEqual(signature, expected)) return Response.json({ success: false, error: "Chữ ký không hợp lệ" }, { status: 401 });
+
+  let payload: Payload;
+  try { payload = JSON.parse(raw) as Payload; } catch {
+    return Response.json({ success: false, error: "JSON không hợp lệ" }, { status: 400 });
   }
 
-  const receivedSecret =
-    typeof payload.secret_token === "string" ? payload.secret_token : "";
-
-  // Authentication always happens before validating or revalidating a tag.
-  if (!secureTokenEquals(receivedSecret, expectedSecret)) {
-    return Response.json({ error: "Invalid token" }, { status: 401 });
+  const tags = Array.isArray(payload.tags) ? payload.tags.filter((tag): tag is string => typeof tag === "string") : [];
+  const paths = Array.isArray(payload.paths) ? payload.paths.filter((path): path is string => typeof path === "string") : [];
+  if (tags.length + paths.length === 0 || tags.length > 30 || paths.length > 30 || tags.some((tag) => !TAG_PATTERN.test(tag)) || paths.some((path) => !PATH_PATTERN.test(path))) {
+    return Response.json({ success: false, error: "Phạm vi revalidation không hợp lệ" }, { status: 400 });
   }
 
-  const tag = typeof payload.tag === "string" ? payload.tag.trim() : "";
-  if (!VALID_TAG.test(tag)) {
-    return Response.json({ error: "Invalid cache tag" }, { status: 400 });
-  }
-
-  revalidateTag(tag, "max");
-
-  return Response.json({
-    revalidated: true,
-    tag,
-    revalidated_at: new Date().toISOString(),
-  });
+  tags.forEach((tag) => revalidateTag(tag, "max"));
+  paths.forEach((path) => revalidatePath(path));
+  return Response.json({ success: true, data: { tags, paths, revalidated_at: new Date().toISOString() } });
 }

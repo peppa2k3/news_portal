@@ -1,0 +1,25 @@
+services:
+  news-portal-web:
+    image: ghcr.io/peppa2k3/news_portal-frontend:${IMAGE_TAG}
+    restart: unless-stopped
+    environment:
+      API_URL: http://news-portal-api:5000/api/v1
+      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
+      NEXT_PUBLIC_COMMENTS_ENABLED: ${NEXT_PUBLIC_COMMENTS_ENABLED:-false}
+      REVALIDATE_SECRET: ${REVALIDATE_SECRET}
+    networks:
+      - web
+      - news-internal
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.news-portal.rule=Host(`${NEWS_DOMAIN}`)
+      - traefik.http.routers.news-portal.entrypoints=websecure
+      - traefik.http.routers.news-portal.tls=true
+      - traefik.http.routers.news-portal.tls.certresolver=le
+      - traefik.http.services.news-portal.loadbalancer.server.port=3000
+
+networks:
+  web:
+    external: true
+  news-internal:
+    external: true
