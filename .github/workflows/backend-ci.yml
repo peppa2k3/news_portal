@@ -10,12 +10,40 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: news_portal
+          POSTGRES_USER: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d news_portal"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://postgres@localhost:5432/news_portal
+      REDIS_URL: redis://localhost:6379
     defaults: { run: { working-directory: backend } }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm, cache-dependency-path: backend/package-lock.json }
       - run: npm ci
+      - run: npm run db:migrate
+      - name: Seed database
+        run: SUPER_ADMIN_EMAIL=ci-admin@example.invalid SUPER_ADMIN_INITIAL_PASSWORD="$(openssl rand -base64 24)Aa1" npm run db:seed
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
